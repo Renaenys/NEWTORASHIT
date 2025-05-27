@@ -22,6 +22,6 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/pages/forgot-password/page.js", "app/pages/layout.tsx"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/pages/forgot-password/page.js", "app/pages/layout.tsx", "hooks/useWebPush.js"],
   "exclude": ["node_modules"]
 }

@@ -6,6 +6,7 @@ import Swal from "sweetalert2";
 import { useSession, SessionProvider } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import SidebarLayout from "@/components/SidebarLayout";
+import NotificationToggle from "@/components/NotificationToggle";
 
 // ——— Add this file for your codes:
 import { COUNTRY_CODES } from "@/lib/countryCodes";
@@ -231,6 +232,13 @@ function ProfilePage() {
                   </p>
                 )}
               </div>
+              {/* ⚙️ Notification Settings
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-50">
+                  🔔 Push Notifications
+                </h2>
+                <NotificationToggle />
+              </div> */}
 
               {/* Country */}
               <input

@@ -5,64 +5,74 @@ import { authOptions } from "@/lib/auth/authOptions";
 import { connectDB } from "@/lib/dbConnect";
 import User from "@/models/User";
 import UserProfile from "@/models/UserProfile";
+import Forecast from "@/models/Forecast";
+import axios from "axios";
 
-export async function GET(request) {
-  // require authentication
+async function getUser() {
   const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  if (!session) throw { status: 401, body: { error: "Unauthorized" } };
   await connectDB();
-  // find user's profile
   const user = await User.findOne({ email: session.user.email });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
+  if (!user) throw { status: 404, body: { error: "User not found" } };
   const profile = await UserProfile.findOne({ user: user._id });
-  const { country, city } = profile || {};
+  if (!profile) throw { status: 404, body: { error: "Profile not found" } };
+  return { user, profile };
+}
 
-  if (!country || !city) {
-    return NextResponse.json(
-      { error: "Please set country & city in your profile first" },
-      { status: 400 }
-    );
+export async function GET() {
+  try {
+    const { user } = await getUser();
+    const today = new Date().toISOString().slice(0, 10);
+    const rec = await Forecast.findOne({ user: user._id, date: today });
+    // return null if not yet fetched
+    return NextResponse.json(rec ? rec.data : null);
+  } catch (err) {
+    return NextResponse.json(err.body || { error: "Server error" }, {
+      status: err.status || 500,
+    });
   }
+}
 
-  // 1. Geocode city/country → lat/lon
-  const geoRes = await fetch(
-    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-      city
-    )}&country=${encodeURIComponent(country)}&count=1`
-  );
-  const geoData = await geoRes.json();
-  if (!geoData.results?.length) {
-    return NextResponse.json(
-      { error: "Unable to geocode your city" },
-      { status: 400 }
+export async function POST() {
+  try {
+    const { user, profile } = await getUser();
+    const today = new Date().toISOString().slice(0, 10);
+
+    // 1) Geocode
+    const geoRes = await axios.get(
+      `https://geocoding-api.open-meteo.com/v1/search` +
+        `?name=${encodeURIComponent(profile.city)}` +
+        `&country=${encodeURIComponent(profile.country)}` +
+        `&count=1`
     );
-  }
-  const { latitude, longitude, name } = geoData.results[0];
+    const loc = geoRes.data.results?.[0];
+    if (!loc) throw new Error("Geocoding failed");
 
-  // 2. Fetch current weather
-  const weatherRes = await fetch(
-    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-      `&current_weather=true&timezone=auto`
-  );
-  const weatherData = await weatherRes.json();
-  if (!weatherData.current_weather) {
-    return NextResponse.json(
-      { error: "Unable to fetch weather" },
-      { status: 500 }
+    // 2) Fetch 3-day forecast
+    const wRes = await axios.get(
+      `https://api.open-meteo.com/v1/forecast` +
+        `?latitude=${loc.latitude}&longitude=${loc.longitude}` +
+        `&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`
     );
-  }
+    const daily = wRes.data.daily;
+    if (!daily) throw new Error("No forecast data");
 
-  // return a concise payload
-  return NextResponse.json({
-    location: name,
-    temperature: weatherData.current_weather.temperature,
-    windspeed: weatherData.current_weather.windspeed,
-    weathercode: weatherData.current_weather.weathercode,
-    time: weatherData.current_weather.time,
-  });
+    // 3) Upsert into Mongo
+    const rec = await Forecast.findOneAndUpdate(
+      { user: user._id, date: today },
+      {
+        $set: { data: daily },
+        $setOnInsert: { user: user._id, date: today },
+      },
+      { upsert: true, new: true }
+    );
+
+    // 4) Return the fresh data
+    return NextResponse.json(rec.data);
+  } catch (err) {
+    console.error("POST /api/weather error:", err);
+    const msg = err.body?.error || err.message || "Server error";
+    const status = err.status || 500;
+    return NextResponse.json({ error: msg }, { status });
+  }
 }

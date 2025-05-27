@@ -39,7 +39,8 @@
     "react-phone-number-input": "^3.4.12",
     "stripe": "^18.1.0",
     "sweetalert2": "^11.6.13",
-    "twilio": "^5.6.1"
+    "twilio": "^5.6.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
