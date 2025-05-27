@@ -7,55 +7,28 @@ import Meeting from "@/models/Meeting";
 import User from "@/models/User";
 
 export async function GET(request) {
-  // 1) require login
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  // 2) connect & lookup user
   await connectDB();
-  const userDoc = await User.findOne({ email: session.user.email });
-  if (!userDoc) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
-
-  // 3) only that user’s meetings
-  const meetings = await Meeting.find({ createdBy: userDoc._id })
-    .sort({ date: -1 })
-    .lean();
-
-  return NextResponse.json(meetings, { status: 200 });
+  const user = await User.findOne({ email: session.user.email });
+  const meetings = await Meeting.find({ createdBy: user._id }).sort({
+    date: -1,
+  });
+  return NextResponse.json(meetings);
 }
 
 export async function POST(request) {
   const session = await getServerSession(authOptions);
-  if (!session)
+  if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+  }
   await connectDB();
   const user = await User.findOne({ email: session.user.email });
-  if (!user)
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-
-  try {
-    const data = await request.json();
-    const meeting = await Meeting.create({
-      title: data.title,
-      agenda: data.agenda,
-      participants: data.participants || [],
-      date: new Date(data.date),
-      location: data.location,
-      createdBy: user._id,
-    });
-    return NextResponse.json(meeting, { status: 201 });
-  } catch (error) {
-    console.error("POST /api/meetings error:", error);
-    return NextResponse.json(
-      { error: "Failed to create meeting" },
-      { status: 500 }
-    );
-  }
+  const data = await request.json();
+  const meeting = await Meeting.create({ ...data, createdBy: user._id });
+  return NextResponse.json(meeting, { status: 201 });
 }
 
 export async function PUT(request) {

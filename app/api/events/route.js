@@ -13,38 +13,20 @@ export async function GET(request) {
   }
   await connectDB();
   const user = await User.findOne({ email: session.user.email });
-  const evts = await Event.find({ createdBy: user._id }).sort({ start: -1 });
-  return NextResponse.json(evts);
+  const events = await Event.find({ createdBy: user._id }).sort({ start: -1 });
+  return NextResponse.json(events);
 }
 
 export async function POST(request) {
   const session = await getServerSession(authOptions);
-  if (!session)
+  if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+  }
   await connectDB();
   const user = await User.findOne({ email: session.user.email });
-  if (!user)
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-
-  try {
-    const data = await request.json();
-    const event = await Event.create({
-      title: data.title,
-      description: data.description,
-      start: new Date(data.start),
-      end: data.end ? new Date(data.end) : undefined,
-      allDay: data.allDay || false,
-      createdBy: user._id,
-    });
-    return NextResponse.json(event, { status: 201 });
-  } catch (error) {
-    console.error("POST /api/events error:", error);
-    return NextResponse.json(
-      { error: "Failed to create event" },
-      { status: 500 }
-    );
-  }
+  const data = await request.json();
+  const event = await Event.create({ ...data, createdBy: user._id });
+  return NextResponse.json(event, { status: 201 });
 }
 
 export async function PUT(request) {

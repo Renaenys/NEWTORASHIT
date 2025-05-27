@@ -4,19 +4,18 @@
 import { SessionProvider } from "next-auth/react";
 import withMembershipGuard from "@/lib/guards/withMembershipGuard";
 import SidebarLayout from "@/components/SidebarLayout";
-import TaskToggleWidget from "@/components/widgets/TaskToggleWidget";
+import TodoWidget from "@/components/widgets/TodoWidget";
 import MeetingListWidget from "@/components/widgets/MeetingListWidget";
 import EventListWidget from "@/components/widgets/EventListWidget";
-import DailyBriefingWidget from "@/components/widgets/DailyBriefingWidget";
-import WeatherWidget from "@/components/widgets/WeatherWidget";
 import ChatBox from "@/components/widgets/ChatBox";
+import Forecast from "@/components/widgets/ForecastWidget";
 
 function DashboardPage({ session }) {
   return (
     <SidebarLayout user={session.user}>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-5 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
         {/* Today's / Upcoming Tasks */}
-        <TaskToggleWidget />
+        <TodoWidget />
 
         {/* Upcoming Meetings */}
         <MeetingListWidget />
@@ -25,10 +24,7 @@ function DashboardPage({ session }) {
         <EventListWidget />
 
         {/* Weather */}
-        {/* <WeatherWidget /> */}
-
-        {/* Daily Briefing */}
-        <DailyBriefingWidget />
+        <Forecast />
       </div>
 
       {/* Chat bubble always rendered at root of dashboard */}

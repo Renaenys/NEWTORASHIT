@@ -57,7 +57,7 @@ export default function ChatBox() {
     localStorage.setItem("currentSessionId", sessionId);
   }, [sessionId]);
 
-  // auto-scroll
+  // auto-scroll on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -92,7 +92,7 @@ export default function ChatBox() {
     if (!text) return;
     setInput("");
 
-    // 1️⃣ Save user message
+    // 1️⃣ Save user message locally & to DB
     const userMsg = { role: "user", content: text };
     setMessages((m) => [...m, userMsg]);
     try {
@@ -117,7 +117,7 @@ export default function ChatBox() {
       return;
     }
 
-    // 3️⃣ If plain text response, echo
+    // 3️⃣ Echo plain-text response
     if (reply.response) {
       const botMsg = { role: "assistant", content: reply.response };
       setMessages((m) => [...m, botMsg]);
@@ -134,13 +134,21 @@ export default function ChatBox() {
     // 4️⃣ Handle function call
     if (reply.action && reply.params) {
       const maps = {
-        create_event: { url: "/api/events", type: "events", label: "Event" },
+        create_event: {
+          url: "/api/events",
+          type: "events",
+          label: "Event",
+        },
         create_meeting: {
           url: "/api/meetings",
           type: "meetings",
           label: "Meeting",
         },
-        create_task: { url: "/api/tasks", type: "tasks", label: "Task" },
+        create_task: {
+          url: "/api/todos", // ← updated to todos
+          type: "todos", // ← updated to todos
+          label: "To-Do",
+        },
         create_contact: {
           url: "/api/contacts",
           type: "contacts",
@@ -148,13 +156,6 @@ export default function ChatBox() {
         },
       };
       const { url, type, label } = maps[reply.action];
-      // keep local-datetime strings
-      if (reply.params.date) {
-        /* leave as-is: "YYYY-MM-DDTHH:mm" */
-      }
-      if (reply.params.start) {
-        /* leave as-is */
-      }
 
       const html = Object.entries(reply.params)
         .map(([k, v]) => `<strong>${k}:</strong> ${v}`)
@@ -171,10 +172,11 @@ export default function ChatBox() {
       try {
         const saveRes = await axios.post(url, reply.params);
         Swal.fire("Saved!", `${label} created.`, "success");
-        // 5️⃣ update context
+
+        // 5️⃣ Update global context
         addItem(type, saveRes.data);
 
-        // echo a confirmation in chat
+        // 6️⃣ Echo confirmation in chat
         const notice = {
           role: "assistant",
           content: `${label} “${
@@ -193,7 +195,7 @@ export default function ChatBox() {
     }
   };
 
-  // ─── render ─────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────
   if (!open) {
     return (
       <button

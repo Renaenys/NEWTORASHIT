@@ -10,14 +10,12 @@ const axios = require("axios");
 const { connectDB } = require("../lib/dbConnect");
 require("../models/Event");
 require("../models/Meeting");
-require("../models/Task");
 require("../models/UserProfile");
 require("../models/Forecast");
 require("../models/Briefing");
 
 const Event = mongoose.model("Event");
 const Meeting = mongoose.model("Meeting");
-const Task = mongoose.model("Task");
 const UserProfile = mongoose.model("UserProfile");
 const Forecast = mongoose.model("Forecast");
 const Briefing = mongoose.model("Briefing");
@@ -28,17 +26,16 @@ const twilioClient = Twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// ─── Helpers ──────────────────────────────────────────────
+// ─── 1) WhatsApp Reminders ────────────────────────────────
 async function sendWhatsAppReminders() {
   await connectDB();
   const now = Date.now();
-  const offsets = [60, 10];
-  const tolerance = 60 * 1000;
+  const offsets = [60, 10]; // minutes before
+  const tolerance = 60 * 1000; // 1 minute window
   const windowEnd = new Date(
-    now + Math.max(...offsets) * 60 * 1000 + 60 * 1000
+    now + Math.max(...offsets) * 60 * 1000 + tolerance
   );
 
-  // fetch upcoming
   const [events, meetings] = await Promise.all([
     Event.find({ start: { $gte: new Date(now), $lt: windowEnd } }),
     Meeting.find({ date: { $gte: new Date(now), $lt: windowEnd } }),
@@ -72,7 +69,6 @@ async function sendWhatsAppReminders() {
       if (sent.has(key)) continue;
       sent.add(key);
 
-      // fetch phone once
       const uid = item.user.toString();
       if (!phoneCache.has(uid)) {
         const prof = await UserProfile.findOne({ user: item.user });
@@ -100,60 +96,121 @@ async function sendWhatsAppReminders() {
   }
 }
 
-async function runForecast() {
-  try {
-    console.log("🔄 Forecast run…");
-    const res = await axios.post(
-      `${process.env.NEXTAUTH_URL}/api/forecast/run`
-    );
-    console.log("   ↳ Forecast saved:", res.data.date);
-  } catch (err) {
-    console.error("Forecast error:", err.response?.data || err.message);
+// ─── 2) Weather Fetch ─────────────────────────────────────
+async function fetchAndStoreWeather() {
+  await connectDB();
+  const today = new Date().toISOString().slice(0, 10);
+  const profiles = await UserProfile.find({});
+
+  for (const prof of profiles) {
+    if (!prof.country || !prof.city) continue;
+    try {
+      // Geocode
+      const geoRes = await axios.get(
+        `https://geocoding-api.open-meteo.com/v1/search` +
+          `?name=${encodeURIComponent(prof.city)}` +
+          `&country=${encodeURIComponent(prof.country)}` +
+          `&count=1`
+      );
+      const loc = geoRes.data.results?.[0];
+      if (!loc) throw new Error("Geocoding failed");
+
+      // Fetch current weather
+      const weatherRes = await axios.get(
+        `https://api.open-meteo.com/v1/forecast` +
+          `?latitude=${loc.latitude}&longitude=${loc.longitude}` +
+          `&current_weather=true&timezone=auto`
+      );
+      const cw = weatherRes.data.current_weather;
+      if (!cw) throw new Error("No current_weather");
+
+      // Upsert into DB
+      await Forecast.findOneAndUpdate(
+        { user: prof.user, date: today },
+        {
+          location: loc.name,
+          temperature: cw.temperature,
+          windspeed: cw.windspeed,
+          weathercode: cw.weathercode,
+          time: cw.time,
+        },
+        { upsert: true, new: true }
+      );
+      console.log(`Weather saved for user ${prof.user} on ${today}`);
+    } catch (e) {
+      console.error(`Weather error for user ${prof.user}:`, e.message);
+    }
   }
 }
 
-async function runBriefing() {
-  try {
-    console.log("📝 Briefing run…");
-    const res = await axios.post(
-      `${process.env.NEXTAUTH_URL}/api/briefing/run`
-    );
-    console.log("   ↳ Briefing saved:", res.data.date);
-  } catch (err) {
-    console.error("Briefing error:", err.response?.data || err.message);
+// ─── 3) Daily Briefing ────────────────────────────────────
+async function sendDailyBriefings() {
+  await connectDB();
+  const today = new Date().toISOString().slice(0, 10);
+  const profiles = await UserProfile.find({});
+
+  for (const prof of profiles) {
+    if (!prof.phone) continue;
+
+    try {
+      // 1) Trigger your Next.js briefing API
+      const apiUrl = `${process.env.NEXTAUTH_URL}/api/briefing`;
+      const res = await axios.post(apiUrl);
+      const { summary } = res.data;
+      if (!summary) throw new Error("No summary returned");
+
+      // 2) Store it locally as well (in case your API didn’t upsert)
+      await Briefing.findOneAndUpdate(
+        { user: prof.user, date: today },
+        { summary },
+        { upsert: true, new: true }
+      );
+
+      // 3) Send via WhatsApp
+      const body = `🗒️ Daily Briefing:\n${summary}`;
+      await twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_FROM,
+        to: `whatsapp:${prof.phone}`,
+        body,
+      });
+      console.log(`Briefing sent to ${prof.user} → ${prof.phone}`);
+    } catch (e) {
+      console.error(`Briefing error for user ${prof.user}:`, e.message);
+    }
   }
 }
 
-// ─── Cron Schedules ───────────────────────────────────────
+// ─── Cron Schedules ────────────────────────────────────────
 
-// 1️⃣ Every minute: WhatsApp reminders
-cron.schedule(
-  "* * * * *",
-  () => {
-    sendWhatsAppReminders().catch(console.error);
-  },
-  { timezone: "Asia/Kuching" }
-);
+// 1️⃣ Every minute: event/meeting reminders
+cron.schedule("* * * * *", () => sendWhatsAppReminders().catch(console.error), {
+  timezone: "Asia/Kuching",
+});
 console.log("✅ Scheduled: WhatsApp reminders every minute");
 
-// 2️⃣ Every 3 hours on the hour: forecast only
+// 2️⃣ Every 6 hours: weather fetch
 cron.schedule(
-  "0 */3 * * *",
-  () => {
-    runForecast();
-  },
+  "0 */6 * * *",
+  () => fetchAndStoreWeather().catch(console.error),
   { timezone: "Asia/Kuching" }
 );
-console.log("✅ Scheduled: Forecast every 3 hours");
+console.log("✅ Scheduled: Weather fetch every 6 hours (Asia/Kuching)");
 
-// 3️⃣ Daily at 07:00: forecast + briefing
+// 3️⃣ Daily at 07:00: weather + briefing + WhatsApp
 cron.schedule(
   "0 7 * * *",
-  () => {
-    Promise.all([runForecast(), runBriefing()]);
+  async () => {
+    try {
+      // refresh weather one more time at 07:00
+      await fetchAndStoreWeather();
+      // generate & send daily briefing
+      await sendDailyBriefings();
+    } catch (e) {
+      console.error("Error in daily 07:00 job:", e);
+    }
   },
   { timezone: "Asia/Kuching" }
 );
-console.log("✅ Scheduled: Daily forecast+briefing at 07:00");
+console.log("✅ Scheduled: Daily briefing & weather at 07:00 (Asia/Kuching)");
 
 console.log("🚀 Scheduler started.");

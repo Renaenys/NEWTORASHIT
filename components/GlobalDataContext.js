@@ -6,7 +6,12 @@ import axios from "axios";
 import { useSession } from "next-auth/react";
 
 const GlobalDataContext = createContext({
-  data: { events: [], meetings: [], tasks: [], contacts: [] },
+  data: {
+    events: [],
+    meetings: [],
+    todos: [],
+    contacts: [],
+  },
   addItem: () => {},
   removeItem: () => {},
   updateItem: () => {},
@@ -17,26 +22,26 @@ export function GlobalDataProvider({ children }) {
   const [data, setData] = useState({
     events: [],
     meetings: [],
-    tasks: [],
+    todos: [],
     contacts: [],
   });
 
-  // only fetch once we know the user is authenticated
+  // Fetch all collections once authenticated
   useEffect(() => {
     if (status !== "authenticated") return;
 
     (async () => {
       try {
-        const [eRes, mRes, tRes, cRes] = await Promise.all([
+        const [eRes, mRes, todoRes, cRes] = await Promise.all([
           axios.get("/api/events"),
           axios.get("/api/meetings"),
-          axios.get("/api/tasks"),
+          axios.get("/api/todos"),
           axios.get("/api/contacts"),
         ]);
         setData({
           events: eRes.data,
           meetings: mRes.data,
-          tasks: tRes.data,
+          todos: todoRes.data,
           contacts: cRes.data,
         });
       } catch (err) {
@@ -45,6 +50,7 @@ export function GlobalDataProvider({ children }) {
     })();
   }, [status]);
 
+  // Add a new item to one of the collections
   const addItem = (collection, item) => {
     setData((prev) => ({
       ...prev,
@@ -52,6 +58,7 @@ export function GlobalDataProvider({ children }) {
     }));
   };
 
+  // Remove an item by _id from a collection
   const removeItem = (collection, id) => {
     setData((prev) => ({
       ...prev,
@@ -59,6 +66,7 @@ export function GlobalDataProvider({ children }) {
     }));
   };
 
+  // Update an existing item in a collection
   const updateItem = (collection, updated) => {
     setData((prev) => ({
       ...prev,

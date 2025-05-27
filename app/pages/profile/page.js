@@ -44,15 +44,24 @@ function ProfilePage() {
     fetch("/api/profile")
       .then((res) => res.json())
       .then((data) => {
-        // split stored full phone into dial and rest
-        let dial = "",
-          rest = "";
+        // split stored full phone into dial + rest using COUNTRY_CODES
+        let dial = "";
+        let rest = "";
         if (data.phone) {
-          const m = data.phone.match(/^(\+\d+)(.*)$/);
-          if (m) [, dial, rest] = m;
+          const codes = COUNTRY_CODES.map((c) => c.dial).sort(
+            (a, b) => b.length - a.length
+          );
+          const match = codes.find((code) => data.phone.startsWith(code));
+          if (match) {
+            dial = match;
+            rest = data.phone.slice(match.length);
+          } else {
+            rest = data.phone;
+          }
         }
-        setProfile({
-          ...profile,
+
+        setProfile((p) => ({
+          ...p,
           name: data.name || "",
           countryDial: dial,
           phone: rest,
@@ -66,18 +75,16 @@ function ProfilePage() {
           },
           imap: {
             host: data.imapSetup?.host || "",
-            port: data.imapSetup?.port || "",
+            port: data.imapSetup?.port || 993,
             user: data.imapSetup?.user || "",
             pass: data.imapSetup?.pass || "",
           },
           memberStatus: data.memberStatus || "none",
           memberExpire: data.memberExpire || "",
           tokenCredit: data.tokenCredit || 0,
-        });
+        }));
       })
-      .catch(() => {
-        Swal.fire("Error", "Could not load profile", "error");
-      })
+      .catch(() => Swal.fire("Error", "Could not load profile", "error"))
       .finally(() => Swal.close());
   }, [status]);
 
